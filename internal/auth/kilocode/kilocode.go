@@ -184,7 +184,8 @@ func (k *KilocodeAuth) pollDeviceCode(ctx context.Context, code string) (*Kiloco
 		return nil, nil, true
 	}
 
-	// Fetch profile to get org ID
+	// Fetch profile to optionally capture org ID for users who opt into org billing.
+	// Personal credits are the default; org_id is only sent when use_org_billing is set.
 	orgID := ""
 	profileReq, err := http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
 	if err == nil {

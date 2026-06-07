@@ -263,7 +263,7 @@ func (e *KilocodeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			}
 		}()
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(nil, 1_048_576)
+		scanner.Buffer(nil, 52_428_800)
 		var param any
 		for scanner.Scan() {
 			line := scanner.Bytes()
@@ -271,21 +271,32 @@ func (e *KilocodeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			if detail, ok := helps.ParseOpenAIStreamUsage(line); ok {
 				reporter.Publish(ctx, detail)
 			}
-			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, bytes.Clone(line), &param)
+			trimmedLine := bytes.TrimSpace(line)
+			if shouldSkipKilocodeSSEMetaLine(trimmedLine) {
+				continue
+			}
+
+			if !bytes.HasPrefix(trimmedLine, []byte("data:")) {
+				if bytes.HasPrefix(trimmedLine, []byte("{")) || bytes.HasPrefix(trimmedLine, []byte("[")) {
+					streamErr := statusErr{code: http.StatusBadGateway, msg: string(trimmedLine)}
+					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+					reporter.PublishFailure(ctx, streamErr)
+					select {
+					case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+					case <-ctx.Done():
+					}
+					return
+				}
+				continue
+			}
+
+			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, bytes.Clone(trimmedLine), &param)
 			for i := range chunks {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
 				case <-ctx.Done():
 					return
 				}
-			}
-		}
-		doneChunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte("[DONE]"), &param)
-		for i := range doneChunks {
-			select {
-			case out <- cliproxyexecutor.StreamChunk{Payload: doneChunks[i]}:
-			case <-ctx.Done():
-				return
 			}
 		}
 		if errScan := scanner.Err(); errScan != nil {
@@ -295,7 +306,17 @@ func (e *KilocodeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
 			case <-ctx.Done():
 			}
+		} else {
+			doneChunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, opts.OriginalRequest, body, []byte("data: [DONE]"), &param)
+			for i := range doneChunks {
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Payload: doneChunks[i]}:
+				case <-ctx.Done():
+					return
+				}
+			}
 		}
+		reporter.EnsurePublished(ctx)
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
 }
@@ -317,6 +338,7 @@ func applyKilocodeHeaders(r *http.Request, token string, stream bool, auth *clip
 	}
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")
+		r.Header.Set("Cache-Control", "no-cache")
 		return
 	}
 	r.Header.Set("Accept", "application/json")
@@ -343,8 +365,36 @@ func kilocodeCreds(a *cliproxyauth.Auth) (token string) {
 	return ""
 }
 
-// kilocodeOrgID extracts the organization ID from auth metadata.
+// kilocodeUseOrgBilling reports whether requests should bill against the
+// organization wallet. By default Kilo Code uses personal credits; sending
+// X-Kilocode-OrganizationID switches billing to the org balance.
+func kilocodeUseOrgBilling(a *cliproxyauth.Auth) bool {
+	if a == nil {
+		return false
+	}
+	if a.Metadata != nil {
+		if v, ok := a.Metadata["use_org_billing"].(bool); ok && v {
+			return true
+		}
+		if v, ok := a.Metadata["use-organization-billing"].(bool); ok && v {
+			return true
+		}
+	}
+	if a.Attributes != nil {
+		for _, key := range []string{"use_org_billing", "use-organization-billing"} {
+			if v := strings.TrimSpace(a.Attributes[key]); strings.EqualFold(v, "true") || v == "1" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// kilocodeOrgID extracts the organization ID from auth metadata when org billing is enabled.
 func kilocodeOrgID(a *cliproxyauth.Auth) string {
+	if !kilocodeUseOrgBilling(a) {
+		return ""
+	}
 	if a == nil {
 		return ""
 	}
@@ -359,4 +409,15 @@ func kilocodeOrgID(a *cliproxyauth.Auth) string {
 		}
 	}
 	return ""
+}
+
+func shouldSkipKilocodeSSEMetaLine(trimmedLine []byte) bool {
+	if len(trimmedLine) == 0 {
+		return true
+	}
+	if bytes.HasPrefix(trimmedLine, []byte("data:")) {
+		return false
+	}
+	return bytes.HasPrefix(trimmedLine, []byte(":")) || bytes.HasPrefix(trimmedLine, []byte("event:")) ||
+		bytes.HasPrefix(trimmedLine, []byte("id:")) || bytes.HasPrefix(trimmedLine, []byte("retry:"))
 }

@@ -121,12 +121,16 @@ func tryRefreshModels(ctx context.Context, label string) {
 		return
 	}
 
-	// Detect changes before updating store.
-	changed := detectChangedProviders(oldData, parsed)
+	// Merge remote updates over the current catalog so locally embedded providers
+	// (e.g. kilocode) are not dropped when the remote catalog has not caught up yet.
+	merged := mergeModelsCatalog(oldData, parsed)
 
-	// Update store with new data regardless.
+	// Detect changes before updating store.
+	changed := detectChangedProviders(oldData, merged)
+
+	// Update store with merged data.
 	modelsCatalogStore.mu.Lock()
-	modelsCatalogStore.data = parsed
+	modelsCatalogStore.data = merged
 	modelsCatalogStore.mu.Unlock()
 
 	if len(changed) == 0 {
@@ -189,6 +193,24 @@ func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 	return nil, ""
 }
 
+// mergeModelsCatalog overlays remote model definitions onto the current catalog.
+// Sections present locally but missing from the remote snapshot are preserved so
+// newly added embedded providers remain available until the remote catalog ships them.
+func mergeModelsCatalog(current, remote *staticModelsJSON) *staticModelsJSON {
+	if remote == nil {
+		return current
+	}
+	if current == nil {
+		return remote
+	}
+
+	merged := *remote
+	if len(merged.Kilocode) == 0 && len(current.Kilocode) > 0 {
+		merged.Kilocode = current.Kilocode
+	}
+	return &merged
+}
+
 // detectChangedProviders compares two model catalogs and returns provider names
 // whose model definitions differ. Codex tiers (free/team/plus/pro) are grouped
 // under a single "codex" provider.
@@ -216,6 +238,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"kimi", oldData.Kimi, newData.Kimi},
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
 		{"xai", oldData.XAI, newData.XAI},
+		{"kilocode", oldData.Kilocode, newData.Kilocode},
 	}
 
 	seen := make(map[string]bool, len(sections))
