@@ -26,6 +26,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/gemini"
+	kilocodeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kilocode"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kimi"
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
@@ -2384,6 +2385,86 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		fmt.Println("You can now use Kimi services through this CLI")
 		CompleteOAuthSession(state)
 		CompleteOAuthSessionsByProvider("kimi")
+	}()
+
+	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+}
+
+func (h *Handler) RequestKilocodeToken(c *gin.Context) {
+	ctx := context.Background()
+	ctx = PopulateAuthContext(ctx, c)
+
+	fmt.Println("Initializing Kilo Code authentication...")
+
+	state := fmt.Sprintf("klo-%d", time.Now().UnixNano())
+	kilocodeSvc := kilocodeauth.NewKilocodeAuth(h.cfg)
+
+	deviceFlow, errStartDeviceFlow := kilocodeSvc.StartDeviceFlow(ctx)
+	if errStartDeviceFlow != nil {
+		log.Errorf("Failed to generate Kilo Code authorization URL: %v", errStartDeviceFlow)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate authorization url"})
+		return
+	}
+	authURL := strings.TrimSpace(deviceFlow.VerificationURL)
+	if authURL == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate authorization url"})
+		return
+	}
+
+	RegisterOAuthSession(state, "kilocode")
+
+	go func() {
+		fmt.Println("Waiting for Kilo Code authentication...")
+		tokenData, errWaitForAuthorization := kilocodeSvc.WaitForAuthorization(ctx, deviceFlow)
+		if errWaitForAuthorization != nil {
+			SetOAuthSessionError(state, "Authentication failed")
+			fmt.Printf("Kilo Code authentication failed: %v\n", errWaitForAuthorization)
+			return
+		}
+
+		tokenStorage := &kilocodeauth.KilocodeTokenStorage{
+			AccessToken: tokenData.AccessToken,
+			Email:       tokenData.Email,
+			OrgID:       tokenData.OrgID,
+			Type:        "kilocode",
+		}
+
+		metadata := map[string]any{
+			"type":         "kilocode",
+			"access_token": tokenData.AccessToken,
+			"timestamp":    time.Now().UnixMilli(),
+		}
+		if strings.TrimSpace(tokenData.Email) != "" {
+			metadata["email"] = strings.TrimSpace(tokenData.Email)
+		}
+		if strings.TrimSpace(tokenData.OrgID) != "" {
+			metadata["org_id"] = strings.TrimSpace(tokenData.OrgID)
+		}
+
+		label := "Kilo Code User"
+		if strings.TrimSpace(tokenData.Email) != "" {
+			label = strings.TrimSpace(tokenData.Email)
+		}
+
+		fileName := fmt.Sprintf("kilocode-%d.json", time.Now().UnixMilli())
+		record := &coreauth.Auth{
+			ID:       fileName,
+			Provider: "kilocode",
+			FileName: fileName,
+			Label:    label,
+			Storage:  tokenStorage,
+			Metadata: metadata,
+		}
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Kilo Code authentication tokens: %v", errSave)
+			SetOAuthSessionError(state, "Failed to save authentication tokens")
+			return
+		}
+
+		fmt.Printf("Kilo Code authentication successful! Token saved to %s\n", savedPath)
+		CompleteOAuthSession(state)
+		CompleteOAuthSessionsByProvider("kilocode")
 	}()
 
 	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
