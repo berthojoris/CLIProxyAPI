@@ -2407,6 +2407,66 @@
       "display_name": "DeepSeek Reasoner (Kilo Code)",
       "context_length": 131072,
       "max_completion_tokens": 65536
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "DeepSeek V4 Flash (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "DeepSeek V4 Pro (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "moonshotai/kimi-k2.6",
+      "object": "model",
+      "created": 1756732800,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Kimi K2.6 (Kilo Code)",
+      "context_length": 262144,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "minimax/minimax-m3",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "MiniMax M3 (Kilo Code)",
+      "context_length": 1048576,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "poolside/laguna-m.1:free",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Laguna M.1 Free (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Nemotron 3 Ultra 550B Free (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 32768
     }
   ]
 }
