@@ -2326,5 +2326,87 @@
         ]
       }
     }
+  ],
+  "kilocode": [
+    {
+      "id": "anthropic/claude-sonnet-4-20250514",
+      "object": "model",
+      "created": 1747526400,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Claude Sonnet 4 (Kilo Code)",
+      "context_length": 200000,
+      "max_completion_tokens": 64000
+    },
+    {
+      "id": "anthropic/claude-opus-4-20250514",
+      "object": "model",
+      "created": 1747526400,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Claude Opus 4 (Kilo Code)",
+      "context_length": 200000,
+      "max_completion_tokens": 32000
+    },
+    {
+      "id": "google/gemini-2.5-pro",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Gemini 2.5 Pro (Kilo Code)",
+      "context_length": 1048576,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "google/gemini-2.5-flash",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Gemini 2.5 Flash (Kilo Code)",
+      "context_length": 1048576,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "openai/gpt-4.1",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "GPT-4.1 (Kilo Code)",
+      "context_length": 1047576,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "openai/o3",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "o3 (Kilo Code)",
+      "context_length": 200000,
+      "max_completion_tokens": 100000
+    },
+    {
+      "id": "deepseek/deepseek-chat",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "DeepSeek Chat (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "deepseek/deepseek-reasoner",
+      "object": "model",
+      "created": 1743936000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "DeepSeek Reasoner (Kilo Code)",
+      "context_length": 131072,
+      "max_completion_tokens": 65536
+    }
   ]
 }
