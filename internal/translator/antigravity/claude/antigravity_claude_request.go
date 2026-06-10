@@ -6,6 +6,7 @@
 package claude
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
@@ -346,7 +347,8 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						}
 					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "image" {
 						sourceResult := contentResult.Get("source")
-						if sourceResult.Get("type").String() == "base64" {
+						sourceType := sourceResult.Get("type").String()
+						if sourceType == "base64" {
 							inlineDataJSON := []byte(`{}`)
 							if mimeType := sourceResult.Get("media_type").String(); mimeType != "" {
 								inlineDataJSON, _ = sjson.SetBytes(inlineDataJSON, "mimeType", mimeType)
@@ -358,6 +360,59 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							partJSON := []byte(`{}`)
 							partJSON, _ = sjson.SetRawBytes(partJSON, "inlineData", inlineDataJSON)
 							clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+						} else if sourceType == "url" {
+							// URL images can't be inlined into Antigravity's payload; preserve as text annotation.
+							imageURL := sourceResult.Get("url").String()
+							if imageURL != "" {
+								textPart := []byte(`{"text":""}`)
+								textPart, _ = sjson.SetBytes(textPart, "text", fmt.Sprintf("[image: %s]", imageURL))
+								partJSON := []byte(`{}`)
+								partJSON, _ = sjson.SetRawBytes(partJSON, "text", textPart)
+								clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+							}
+						}
+					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "document" {
+						sourceResult := contentResult.Get("source")
+						sourceType := sourceResult.Get("type").String()
+						if sourceType == "base64" {
+							mimeType := sourceResult.Get("media_type").String()
+							if mimeType == "" {
+								mimeType = "application/octet-stream"
+							}
+							data := sourceResult.Get("data").String()
+							if data != "" {
+								// Antigravity only supports image inlineData; non-image documents
+								// are kept as text annotations so the model still has the file info.
+								if !strings.HasPrefix(mimeType, "image/") {
+									textPart := []byte(`{"text":""}`)
+									annotation := fmt.Sprintf("[document: %s (%s, %d bytes base64)]", sourceResult.Get("filename").String(), mimeType, len(data))
+									textPart, _ = sjson.SetBytes(textPart, "text", annotation)
+									partJSON := []byte(`{}`)
+									partJSON, _ = sjson.SetRawBytes(partJSON, "text", textPart)
+									clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+									continue
+								}
+								inlineDataJSON := []byte(`{}`)
+								inlineDataJSON, _ = sjson.SetBytes(inlineDataJSON, "mimeType", mimeType)
+								inlineDataJSON, _ = sjson.SetBytes(inlineDataJSON, "data", data)
+								partJSON := []byte(`{}`)
+								partJSON, _ = sjson.SetRawBytes(partJSON, "inlineData", inlineDataJSON)
+								clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+							}
+						} else {
+							// Non-base64 document sources cannot be forwarded; preserve as text.
+							fileURI := sourceResult.Get("url").String()
+							if fileURI == "" {
+								fileURI = sourceResult.Get("file_uri").String()
+							}
+							if fileURI != "" {
+								mimeType := sourceResult.Get("media_type").String()
+								textPart := []byte(`{"text":""}`)
+								textPart, _ = sjson.SetBytes(textPart, "text", fmt.Sprintf("[document: %s (%s)]", fileURI, mimeType))
+								partJSON := []byte(`{}`)
+								partJSON, _ = sjson.SetRawBytes(partJSON, "text", textPart)
+								clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+							}
 						}
 					}
 				}

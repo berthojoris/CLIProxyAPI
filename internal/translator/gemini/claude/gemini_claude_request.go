@@ -125,12 +125,59 @@ func ConvertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 
 					case "image":
 						source := contentResult.Get("source")
+						sourceType := source.Get("type").String()
+						if sourceType == "base64" {
+							mimeType := source.Get("media_type").String()
+							data := source.Get("data").String()
+							if mimeType == "" || data == "" {
+								return true
+							}
+							part := []byte(`{"inline_data":{"mime_type":"","data":""}}`)
+							part, _ = sjson.SetBytes(part, "inline_data.mime_type", mimeType)
+							part, _ = sjson.SetBytes(part, "inline_data.data", data)
+							contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+						} else if sourceType == "url" {
+							// URL images can't be inlined into Gemini's payload; preserve as a text
+							// annotation so the model at least has context about the image.
+							url := source.Get("url").String()
+							if url != "" {
+								part := []byte(`{"text":""}`)
+								part, _ = sjson.SetBytes(part, "text", fmt.Sprintf("[image: %s]", url))
+								contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+							}
+						}
+
+					case "document":
+						source := contentResult.Get("source")
 						if source.Get("type").String() != "base64" {
+							// Non-base64 document sources cannot be forwarded to Gemini; preserve as text.
+							fileURI := source.Get("url").String()
+							if fileURI == "" {
+								fileURI = source.Get("file_uri").String()
+							}
+							if fileURI != "" {
+								mimeType := source.Get("media_type").String()
+								part := []byte(`{"text":""}`)
+								part, _ = sjson.SetBytes(part, "text", fmt.Sprintf("[document: %s (%s)]", fileURI, mimeType))
+								contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+							}
 							return true
 						}
 						mimeType := source.Get("media_type").String()
 						data := source.Get("data").String()
-						if mimeType == "" || data == "" {
+						if mimeType == "" {
+							mimeType = "application/octet-stream"
+						}
+						if data == "" {
+							return true
+						}
+						// Gemini only supports image inline_data; for non-image documents we attach
+						// the file metadata as text so the model still receives the document info.
+						if !strings.HasPrefix(mimeType, "image/") {
+							part := []byte(`{"text":""}`)
+							annotation := fmt.Sprintf("[document: %s (%s, %d bytes base64)]", source.Get("filename").String(), mimeType, len(data))
+							part, _ = sjson.SetBytes(part, "text", annotation)
+							contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
 							return true
 						}
 						part := []byte(`{"inline_data":{"mime_type":"","data":""}}`)

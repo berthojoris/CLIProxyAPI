@@ -198,17 +198,32 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 						case "file":
 							filename := item.Get("file.filename").String()
 							fileData := item.Get("file.file_data").String()
+							mimeType := "application/octet-stream"
 							ext := ""
 							if sp := strings.Split(filename, "."); len(sp) > 1 {
 								ext = sp[len(sp)-1]
 							}
-							if mimeType, ok := misc.MimeTypes[ext]; ok {
-								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
-								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", fileData)
-								p++
-							} else {
-								log.Warnf("Unknown file name extension '%s' in user message, skip", ext)
+							if mapped, ok := misc.MimeTypes[ext]; ok {
+								mimeType = mapped
 							}
+							// Strip data: URL prefix if present, extracting actual base64 data
+							if strings.HasPrefix(fileData, "data:") {
+								commaIdx := strings.Index(fileData, ",")
+								if commaIdx != -1 {
+									// Try to extract explicit MIME type from the data URL header
+									prefix := fileData[:commaIdx]
+									if semi := strings.Index(prefix, ";"); semi != -1 {
+										declaredType := strings.TrimSuffix(strings.TrimPrefix(prefix, "data:"), ";base64")
+										if declaredType != "" && declaredType != ";" {
+											mimeType = declaredType
+										}
+									}
+									fileData = fileData[commaIdx+1:]
+								}
+							}
+							node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
+							node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", fileData)
+							p++
 						}
 					}
 				}

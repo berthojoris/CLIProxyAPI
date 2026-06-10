@@ -121,7 +121,8 @@ func ConvertClaudeRequestToCLI(modelName string, inputRawJSON []byte, _ bool) []
 
 					case "image":
 						source := contentResult.Get("source")
-						if source.Get("type").String() == "base64" {
+						sourceType := source.Get("type").String()
+						if sourceType == "base64" {
 							mimeType := source.Get("media_type").String()
 							data := source.Get("data").String()
 							if mimeType != "" && data != "" {
@@ -130,7 +131,51 @@ func ConvertClaudeRequestToCLI(modelName string, inputRawJSON []byte, _ bool) []
 								part, _ = sjson.SetBytes(part, "inlineData.data", data)
 								contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
 							}
+						} else if sourceType == "url" {
+							url := source.Get("url").String()
+							if url != "" {
+								part := []byte(`{"text":""}`)
+								part, _ = sjson.SetBytes(part, "text", "[image: "+url+"]")
+								contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+							}
 						}
+
+					case "document":
+						source := contentResult.Get("source")
+						if source.Get("type").String() != "base64" {
+							fileURI := source.Get("url").String()
+							if fileURI == "" {
+								fileURI = source.Get("file_uri").String()
+							}
+							if fileURI != "" {
+								mimeType := source.Get("media_type").String()
+								part := []byte(`{"text":""}`)
+								part, _ = sjson.SetBytes(part, "text", "[document: "+fileURI+" ("+mimeType+")]")
+								contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+							}
+							return true
+						}
+						mimeType := source.Get("media_type").String()
+						if mimeType == "" {
+							mimeType = "application/octet-stream"
+						}
+						data := source.Get("data").String()
+						if data == "" {
+							return true
+						}
+						// Gemini CLI only supports image inline_data; non-image documents are kept as
+						// text annotations so the model still has the file metadata.
+						if !strings.HasPrefix(mimeType, "image/") {
+							part := []byte(`{"text":""}`)
+							annotation := "[document: " + source.Get("filename").String() + " (" + mimeType + ", " + intToString(len(data)) + " bytes base64)]"
+							part, _ = sjson.SetBytes(part, "text", annotation)
+							contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+							return true
+						}
+						part := []byte(`{"inlineData":{"mime_type":"","data":""}}`)
+						part, _ = sjson.SetBytes(part, "inlineData.mime_type", mimeType)
+						part, _ = sjson.SetBytes(part, "inlineData.data", data)
+						contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
 					}
 					return true
 				})
@@ -242,4 +287,27 @@ func ConvertClaudeRequestToCLI(modelName string, inputRawJSON []byte, _ bool) []
 
 	out = common.AttachDefaultSafetySettings(out, "request.safetySettings")
 	return out
+}
+
+func intToString(i int) string {
+	// Avoid importing strconv just for one call site.
+	if i == 0 {
+		return "0"
+	}
+	negative := i < 0
+	if negative {
+		i = -i
+	}
+	var digits [20]byte
+	pos := len(digits)
+	for i > 0 {
+		pos--
+		digits[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if negative {
+		pos--
+		digits[pos] = '-'
+	}
+	return string(digits[pos:])
 }

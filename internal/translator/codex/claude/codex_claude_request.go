@@ -125,6 +125,16 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 				hasContent = true
 			}
 
+			appendFileContent := func(fileData, filename string) {
+				message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.type", contentIndex), "input_file")
+				if filename != "" {
+					message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.filename", contentIndex), filename)
+				}
+				message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.file_data", contentIndex), fileData)
+				contentIndex++
+				hasContent = true
+			}
+
 			appendReasoningContent := func(part gjson.Result) {
 				if messageRole != "assistant" {
 					return
@@ -156,20 +166,62 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 					case "image":
 						sourceResult := messageContentResult.Get("source")
 						if sourceResult.Exists() {
-							data := sourceResult.Get("data").String()
-							if data == "" {
-								data = sourceResult.Get("base64").String()
+							sourceType := sourceResult.Get("type").String()
+							if sourceType == "base64" {
+								data := sourceResult.Get("data").String()
+								if data == "" {
+									data = sourceResult.Get("base64").String()
+								}
+								if data != "" {
+									mediaType := sourceResult.Get("media_type").String()
+									if mediaType == "" {
+										mediaType = sourceResult.Get("mime_type").String()
+									}
+									if mediaType == "" {
+										mediaType = "application/octet-stream"
+									}
+									dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+									appendImageContent(dataURL)
+								}
+							} else if sourceType == "url" {
+								// URL images can't be inlined into Codex's payload; preserve as text annotation.
+								imageURL := sourceResult.Get("url").String()
+								if imageURL != "" {
+									appendTextContent(fmt.Sprintf("[image: %s]", imageURL))
+								}
 							}
-							if data != "" {
-								mediaType := sourceResult.Get("media_type").String()
-								if mediaType == "" {
-									mediaType = sourceResult.Get("mime_type").String()
+						}
+					case "document":
+						sourceResult := messageContentResult.Get("source")
+						if sourceResult.Exists() {
+							sourceType := sourceResult.Get("type").String()
+							if sourceType == "base64" {
+								data := sourceResult.Get("data").String()
+								if data == "" {
+									data = sourceResult.Get("base64").String()
 								}
-								if mediaType == "" {
-									mediaType = "application/octet-stream"
+								if data != "" {
+									mediaType := sourceResult.Get("media_type").String()
+									if mediaType == "" {
+										mediaType = sourceResult.Get("mime_type").String()
+									}
+									if mediaType == "" {
+										mediaType = "application/octet-stream"
+									}
+									filename := sourceResult.Get("filename").String()
+									dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+									appendFileContent(dataURL, filename)
 								}
-								dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
-								appendImageContent(dataURL)
+							} else {
+								// Non-base64 document sources cannot be forwarded to Codex; preserve as text.
+								fileURI := sourceResult.Get("url").String()
+								if fileURI == "" {
+									fileURI = sourceResult.Get("file_uri").String()
+								}
+								if fileURI != "" {
+									mimeType := sourceResult.Get("media_type").String()
+									appendTextContent(fmt.Sprintf("[document: %s (%s)]", fileURI, mimeType))
+								}
 							}
 						}
 					case "tool_use":
@@ -202,23 +254,73 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 								if toolResultContentType == "image" {
 									sourceResult := contentResults[k].Get("source")
 									if sourceResult.Exists() {
-										data := sourceResult.Get("data").String()
-										if data == "" {
-											data = sourceResult.Get("base64").String()
-										}
-										if data != "" {
-											mediaType := sourceResult.Get("media_type").String()
-											if mediaType == "" {
-												mediaType = sourceResult.Get("mime_type").String()
+										sourceType := sourceResult.Get("type").String()
+										if sourceType == "base64" {
+											data := sourceResult.Get("data").String()
+											if data == "" {
+												data = sourceResult.Get("base64").String()
 											}
-											if mediaType == "" {
-												mediaType = "application/octet-stream"
-											}
-											dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+											if data != "" {
+												mediaType := sourceResult.Get("media_type").String()
+												if mediaType == "" {
+													mediaType = sourceResult.Get("mime_type").String()
+												}
+												if mediaType == "" {
+													mediaType = "application/octet-stream"
+												}
+												dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
 
-											toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.type", toolResultContentIndex), "input_image")
-											toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.image_url", toolResultContentIndex), dataURL)
-											toolResultContentIndex++
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.type", toolResultContentIndex), "input_image")
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.image_url", toolResultContentIndex), dataURL)
+												toolResultContentIndex++
+											}
+										} else if sourceType == "url" {
+											imageURL := sourceResult.Get("url").String()
+											if imageURL != "" {
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.type", toolResultContentIndex), "input_text")
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.text", toolResultContentIndex), fmt.Sprintf("[image: %s]", imageURL))
+												toolResultContentIndex++
+											}
+										}
+									}
+								} else if toolResultContentType == "document" {
+									sourceResult := contentResults[k].Get("source")
+									if sourceResult.Exists() {
+										sourceType := sourceResult.Get("type").String()
+										if sourceType == "base64" {
+											data := sourceResult.Get("data").String()
+											if data == "" {
+												data = sourceResult.Get("base64").String()
+											}
+											if data != "" {
+												mediaType := sourceResult.Get("media_type").String()
+												if mediaType == "" {
+													mediaType = sourceResult.Get("mime_type").String()
+												}
+												if mediaType == "" {
+													mediaType = "application/octet-stream"
+												}
+												filename := sourceResult.Get("filename").String()
+												dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.type", toolResultContentIndex), "input_file")
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.file_data", toolResultContentIndex), dataURL)
+												if filename != "" {
+													toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.filename", toolResultContentIndex), filename)
+												}
+												toolResultContentIndex++
+											}
+										} else {
+											fileURI := sourceResult.Get("url").String()
+											if fileURI == "" {
+												fileURI = sourceResult.Get("file_uri").String()
+											}
+											if fileURI != "" {
+												mimeType := sourceResult.Get("media_type").String()
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.type", toolResultContentIndex), "input_text")
+												toolResultContent, _ = sjson.SetBytes(toolResultContent, fmt.Sprintf("%d.text", toolResultContentIndex), fmt.Sprintf("[document: %s (%s)]", fileURI, mimeType))
+												toolResultContentIndex++
+											}
 										}
 									}
 								} else if toolResultContentType == "text" {

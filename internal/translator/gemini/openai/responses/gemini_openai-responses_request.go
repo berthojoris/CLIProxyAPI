@@ -264,6 +264,25 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 								partJSON, _ = sjson.SetBytes(partJSON, "inline_data.mime_type", mimeType)
 								partJSON, _ = sjson.SetBytes(partJSON, "inline_data.data", audioData)
 							}
+						case "input_file":
+							// OpenAI Responses file parts cannot be inlined into Gemini's payload
+							// (Gemini only supports image inline_data); preserve as a text
+							// annotation so the model still has context about the file.
+							filename := contentItem.Get("filename").String()
+							fileData := contentItem.Get("file_data").String()
+							if fileData == "" {
+								fileData = contentItem.Get("data").String()
+							}
+							annotation := "[file"
+							if filename != "" {
+								annotation += ": " + filename
+							}
+							if fileData != "" {
+								annotation += " (base64 data preserved on input)"
+							}
+							annotation += "]"
+							partJSON = []byte(`{"text":""}`)
+							partJSON, _ = sjson.SetBytes(partJSON, "text", annotation)
 						}
 
 						if len(partJSON) > 0 {

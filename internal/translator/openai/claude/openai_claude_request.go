@@ -158,7 +158,7 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 					case "redacted_thinking":
 						// Explicitly ignore redacted_thinking - never map to reasoning_content (AC2)
 
-					case "text", "image":
+					case "text", "image", "document":
 						if contentItem, ok := convertClaudeContentPart(part); ok {
 							contentItems = append(contentItems, []byte(contentItem))
 						}
@@ -375,6 +375,37 @@ func convertClaudeContentPart(part gjson.Result) (string, bool) {
 
 		return string(imageContent), true
 
+	case "document":
+		var fileData string
+		filename := "document"
+
+		if source := part.Get("source"); source.Exists() {
+			sourceType := source.Get("type").String()
+			if sourceType == "base64" {
+				mediaType := source.Get("media_type").String()
+				if mediaType == "" {
+					mediaType = "application/octet-stream"
+				}
+				data := source.Get("data").String()
+				if data != "" {
+					fileData = "data:" + mediaType + ";base64," + data
+				}
+				if name := source.Get("filename"); name.Exists() && name.String() != "" {
+					filename = name.String()
+				}
+			}
+		}
+
+		if fileData == "" {
+			return "", false
+		}
+
+		fileContent := []byte(`{"type":"file","file":{"filename":"","file_data":""}}`)
+		fileContent, _ = sjson.SetBytes(fileContent, "file.filename", filename)
+		fileContent, _ = sjson.SetBytes(fileContent, "file.file_data", fileData)
+
+		return string(fileContent), true
+
 	default:
 		return "", false
 	}
@@ -407,7 +438,7 @@ func convertClaudeToolResultContent(content gjson.Result) (string, bool) {
 				textContent := []byte(`{"type":"text","text":""}`)
 				textContent, _ = sjson.SetBytes(textContent, "text", text)
 				contentJSON, _ = sjson.SetRawBytes(contentJSON, "-1", textContent)
-			case item.IsObject() && item.Get("type").String() == "image":
+			case item.IsObject() && (item.Get("type").String() == "image" || item.Get("type").String() == "document"):
 				contentItem, ok := convertClaudeContentPart(item)
 				if ok {
 					contentJSON, _ = sjson.SetRawBytes(contentJSON, "-1", []byte(contentItem))
@@ -435,7 +466,7 @@ func convertClaudeToolResultContent(content gjson.Result) (string, bool) {
 	}
 
 	if content.IsObject() {
-		if content.Get("type").String() == "image" {
+		if content.Get("type").String() == "image" || content.Get("type").String() == "document" {
 			contentItem, ok := convertClaudeContentPart(content)
 			if ok {
 				contentJSON := []byte(`[]`)

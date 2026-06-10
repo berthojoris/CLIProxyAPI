@@ -155,6 +155,22 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 							contentPart := []byte(`{"type":"image_url","image_url":{"url":""}}`)
 							contentPart, _ = sjson.SetBytes(contentPart, "image_url.url", imageURL)
 							message, _ = sjson.SetRawBytes(message, "content.-1", contentPart)
+						case "input_file":
+							filename := contentItem.Get("filename").String()
+							fileData := contentItem.Get("file_data").String()
+							if fileData == "" {
+								// Fallback: some clients put base64 under "data" when the file
+								// payload is structured differently.
+								fileData = contentItem.Get("data").String()
+							}
+							if fileData != "" {
+								contentPart := []byte(`{"type":"file","file":{"filename":"","file_data":""}}`)
+								if filename != "" {
+									contentPart, _ = sjson.SetBytes(contentPart, "file.filename", filename)
+								}
+								contentPart, _ = sjson.SetBytes(contentPart, "file.file_data", fileData)
+								message, _ = sjson.SetRawBytes(message, "content.-1", contentPart)
+							}
 						}
 						return true
 					})

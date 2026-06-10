@@ -149,6 +149,21 @@ func ConvertGeminiRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 					msg, _ = sjson.SetRawBytes(msg, "content.-1", contentPart)
 					hasContent = true
 				}
+
+				// Handle file data (Gemini) -> inline annotation. FileService references can't be
+				// forwarded to non-Google backends; preserve as descriptive text so the model still
+				// has context about the file.
+				if fileData := part.Get("fileData"); fileData.Exists() {
+					mimeType := fileData.Get("mimeType").String()
+					fileURI := fileData.Get("fileUri").String()
+					if fileURI != "" {
+						contentPart := []byte(`{"type":"text","text":""}`)
+						annotation := fmt.Sprintf("[file: %s (%s)]", fileURI, mimeType)
+						contentPart, _ = sjson.SetBytes(contentPart, "text", annotation)
+						msg, _ = sjson.SetRawBytes(msg, "content.-1", contentPart)
+						hasContent = true
+					}
+				}
 				return true
 			})
 		}
@@ -205,6 +220,26 @@ func ConvertGeminiRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 						contentPart, _ = sjson.SetBytes(contentPart, "image_url.url", imageURL)
 						contentWrapper, _ = sjson.SetRawBytes(contentWrapper, "arr.-1", contentPart)
 						contentPartsCount++
+					}
+
+					// Handle file data (Gemini) -> file (OpenAI). file_data is a FileService reference
+					// when file_uri is set, or an inline data URL when only data is present.
+					if fileData := part.Get("fileData"); fileData.Exists() {
+						onlyTextContent = false
+
+						mimeType := fileData.Get("mimeType").String()
+						if mimeType == "" {
+							mimeType = "application/octet-stream"
+						}
+						fileURI := fileData.Get("fileUri").String()
+						if fileURI != "" {
+							// FileService references can't be forwarded to non-Google backends; preserve as text annotation.
+							textPart := []byte(`{"type":"text","text":""}`)
+							annotation := fmt.Sprintf("[file: %s (%s)]", fileURI, mimeType)
+							textPart, _ = sjson.SetBytes(textPart, "text", annotation)
+							contentWrapper, _ = sjson.SetRawBytes(contentWrapper, "arr.-1", textPart)
+							contentPartsCount++
+						}
 					}
 
 					// Handle function calls (Gemini) -> tool calls (OpenAI)
