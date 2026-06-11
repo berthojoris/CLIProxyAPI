@@ -2467,6 +2467,26 @@
       "display_name": "Nemotron 3 Ultra 550B Free (Kilo Code)",
       "context_length": 131072,
       "max_completion_tokens": 32768
+    },
+    {
+      "id": "qwen/qwen3.7-plus",
+      "object": "model",
+      "created": 1748736000,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Qwen 3.7 Plus (Kilo Code)",
+      "context_length": 1000000,
+      "max_completion_tokens": 65536
+    },
+    {
+      "id": "stepfun/step-3.7-flash:free",
+      "object": "model",
+      "created": 1748390400,
+      "owned_by": "kilocode",
+      "type": "openai",
+      "display_name": "Step 3.7 Flash Free (Kilo Code)",
+      "context_length": 262144,
+      "max_completion_tokens": 262144
     }
   ]
 }
